@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from ...database.session import get_db
 from ...database.models import Account
 from ...config.settings import get_settings
+from .accounts import resolve_account_ids
 from ...core.payment import (
     generate_plus_link,
     generate_team_link,
@@ -48,8 +49,12 @@ class MarkSubscriptionRequest(BaseModel):
 
 
 class BatchCheckSubscriptionRequest(BaseModel):
-    ids: List[int]
+    ids: List[int] = []
     proxy: Optional[str] = None
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 class UploadTMRequest(BaseModel):
@@ -57,7 +62,11 @@ class UploadTMRequest(BaseModel):
 
 
 class BatchUploadTMRequest(BaseModel):
-    ids: List[int]
+    ids: List[int] = []
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 # ============== 支付链接生成 ==============
@@ -143,7 +152,11 @@ def batch_check_subscription(request: BatchCheckSubscriptionRequest):
     results = {"success_count": 0, "failed_count": 0, "details": []}
 
     with get_db() as db:
-        for account_id in request.ids:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+        for account_id in ids:
             account = db.query(Account).filter(Account.id == account_id).first()
             if not account:
                 results["failed_count"] += 1
@@ -201,5 +214,11 @@ def batch_upload_tm(request: BatchUploadTMRequest):
     api_url = settings.tm_api_url
     api_key = settings.tm_api_key.get_secret_value() if settings.tm_api_key else ""
 
-    results = batch_upload_to_team_manager(request.ids, api_url, api_key)
+    with get_db() as db:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+
+    results = batch_upload_to_team_manager(ids, api_url, api_key)
     return results

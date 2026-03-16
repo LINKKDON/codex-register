@@ -60,7 +60,11 @@ class AccountUpdateRequest(BaseModel):
 
 class BatchDeleteRequest(BaseModel):
     """批量删除请求"""
-    ids: List[int]
+    ids: List[int] = []
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 class BatchUpdateRequest(BaseModel):
@@ -70,6 +74,30 @@ class BatchUpdateRequest(BaseModel):
 
 
 # ============== Helper Functions ==============
+
+def resolve_account_ids(
+    db,
+    ids: List[int],
+    select_all: bool = False,
+    status_filter: Optional[str] = None,
+    email_service_filter: Optional[str] = None,
+    search_filter: Optional[str] = None,
+) -> List[int]:
+    """当 select_all=True 时查询全部符合条件的 ID，否则直接返回传入的 ids"""
+    if not select_all:
+        return ids
+    query = db.query(Account.id)
+    if status_filter:
+        query = query.filter(Account.status == status_filter)
+    if email_service_filter:
+        query = query.filter(Account.email_service == email_service_filter)
+    if search_filter:
+        pattern = f"%{search_filter}%"
+        query = query.filter(
+            (Account.email.ilike(pattern)) | (Account.account_id.ilike(pattern))
+        )
+    return [row[0] for row in query.all()]
+
 
 def account_to_response(account: Account) -> AccountResponse:
     """转换 Account 模型为响应模型"""
@@ -162,9 +190,9 @@ async def get_account_tokens(account_id: int):
         return {
             "id": account.id,
             "email": account.email,
-            "access_token": account.access_token[:50] + "..." if account.access_token else None,
-            "refresh_token": account.refresh_token[:50] + "..." if account.refresh_token else None,
-            "id_token": account.id_token[:50] + "..." if account.id_token else None,
+            "access_token": account.access_token,
+            "refresh_token": account.refresh_token,
+            "id_token": account.id_token,
             "has_tokens": bool(account.access_token and account.refresh_token),
         }
 
@@ -208,10 +236,14 @@ async def delete_account(account_id: int):
 async def batch_delete_accounts(request: BatchDeleteRequest):
     """批量删除账号"""
     with get_db() as db:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
         deleted_count = 0
         errors = []
 
-        for account_id in request.ids:
+        for account_id in ids:
             try:
                 account = crud.get_account_by_id(db, account_id)
                 if account:
@@ -255,14 +287,22 @@ async def batch_update_accounts(request: BatchUpdateRequest):
 
 class BatchExportRequest(BaseModel):
     """批量导出请求"""
-    ids: List[int]
+    ids: List[int] = []
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 @router.post("/export/json")
 async def export_accounts_json(request: BatchExportRequest):
     """导出账号为 JSON 格式"""
     with get_db() as db:
-        accounts = db.query(Account).filter(Account.id.in_(request.ids)).all()
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+        accounts = db.query(Account).filter(Account.id.in_(ids)).all()
 
         export_data = []
         for acc in accounts:
@@ -304,7 +344,11 @@ async def export_accounts_csv(request: BatchExportRequest):
     import io
 
     with get_db() as db:
-        accounts = db.query(Account).filter(Account.id.in_(request.ids)).all()
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+        accounts = db.query(Account).filter(Account.id.in_(ids)).all()
 
         # 创建 CSV 内容
         output = io.StringIO()
@@ -357,7 +401,11 @@ async def export_accounts_cpa(request: BatchExportRequest):
     from ...core.cpa_upload import generate_token_json
 
     with get_db() as db:
-        accounts = db.query(Account).filter(Account.id.in_(request.ids)).all()
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+        accounts = db.query(Account).filter(Account.id.in_(ids)).all()
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -427,8 +475,12 @@ class TokenRefreshRequest(BaseModel):
 
 class BatchRefreshRequest(BaseModel):
     """批量刷新请求"""
-    ids: List[int]
+    ids: List[int] = []
     proxy: Optional[str] = None
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 class TokenValidateRequest(BaseModel):
@@ -438,8 +490,12 @@ class TokenValidateRequest(BaseModel):
 
 class BatchValidateRequest(BaseModel):
     """批量验证请求"""
-    ids: List[int]
+    ids: List[int] = []
     proxy: Optional[str] = None
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 @router.post("/{account_id}/refresh")
@@ -478,7 +534,13 @@ async def batch_refresh_tokens(request: BatchRefreshRequest, background_tasks: B
         "errors": []
     }
 
-    for account_id in request.ids:
+    with get_db() as db:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+
+    for account_id in ids:
         try:
             result = do_refresh(account_id, proxy)
             if result.success:
@@ -523,7 +585,13 @@ async def batch_validate_tokens(request: BatchValidateRequest):
         "details": []
     }
 
-    for account_id in request.ids:
+    with get_db() as db:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+
+    for account_id in ids:
         try:
             is_valid, error = do_validate(account_id, proxy)
             results["details"].append({
@@ -555,8 +623,12 @@ class CPAUploadRequest(BaseModel):
 
 class BatchCPAUploadRequest(BaseModel):
     """批量 CPA 上传请求"""
-    ids: List[int]
+    ids: List[int] = []
     proxy: Optional[str] = None
+    select_all: bool = False
+    status_filter: Optional[str] = None
+    email_service_filter: Optional[str] = None
+    search_filter: Optional[str] = None
 
 
 @router.post("/{account_id}/upload-cpa")
@@ -609,6 +681,12 @@ async def batch_upload_accounts_to_cpa(request: BatchCPAUploadRequest):
     # 使用传入的代理或全局代理配置
     proxy = request.proxy if request.proxy else get_settings().proxy_url
 
-    results = batch_upload_to_cpa(request.ids, proxy)
+    with get_db() as db:
+        ids = resolve_account_ids(
+            db, request.ids, request.select_all,
+            request.status_filter, request.email_service_filter, request.search_filter
+        )
+
+    results = batch_upload_to_cpa(ids, proxy)
 
     return results
