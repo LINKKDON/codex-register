@@ -13,6 +13,8 @@
   - 自定义域名（两种子类型）
     - **MoeMail**：标准 REST API，配置 API 地址 + API 密钥
     - **TempMail**：自部署 Cloudflare Worker 临时邮箱，配置 Worker 地址 + Admin 密码
+  - DuckMail
+    - **DuckMail API**：兼容 DuckMail 接口，手动填写 API 地址、默认域名，可选 API Key
 
 - **注册模式**
   - 单次注册

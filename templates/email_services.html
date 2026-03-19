@@ -42,7 +42,7 @@
                 </div>
                 <div class="stat-card success">
                     <div class="stat-value" id="custom-count">0</div>
-                    <div class="stat-label">自定义域名</div>
+                    <div class="stat-label">自定义邮箱</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-value" id="tempmail-status">可用</div>
@@ -93,10 +93,10 @@
                 </div>
             </div>
 
-            <!-- 自定义域名管理（含 MoeMail / TempMail） -->
+            <!-- 自定义邮箱管理（含 MoeMail / TempMail / DuckMail） -->
             <div class="card">
                 <div class="card-header">
-                    <h3>🔗 自定义域名服务</h3>
+                    <h3>🔗 自定义邮箱服务</h3>
                     <button class="btn btn-primary btn-sm" id="add-custom-btn">➕ 添加服务</button>
                 </div>
                 <div class="card-body" style="padding: 0;">
@@ -191,11 +191,11 @@
         </main>
     </div>
 
-    <!-- 添加自定义域名服务模态框（含类型选择） -->
+    <!-- 添加自定义邮箱服务模态框（含类型选择） -->
     <div class="modal" id="add-custom-modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>➕ 添加自定义域名服务</h3>
+                <h3>➕ 添加自定义邮箱服务</h3>
                 <button class="modal-close" id="close-custom-modal">&times;</button>
             </div>
             <div class="modal-body">
@@ -209,6 +209,7 @@
                         <select id="custom-sub-type" name="sub_type">
                             <option value="moemail">MoeMail（自定义域名 API）</option>
                             <option value="tempmail">TempMail（自部署 Cloudflare Worker）</option>
+                            <option value="duckmail">DuckMail（DuckMail API）</option>
                         </select>
                     </div>
                     <!-- MoeMail 字段 -->
@@ -241,6 +242,25 @@
                             <input type="text" id="custom-tm-domain" name="tm_domain" placeholder="example.com">
                         </div>
                     </div>
+                    <!-- DuckMail 字段 -->
+                    <div id="add-duckmail-fields" style="display:none;">
+                        <div class="form-group">
+                            <label for="custom-dm-base-url">API 地址</label>
+                            <input type="text" id="custom-dm-base-url" name="dm_base_url" placeholder="https://api.duckmail.sbs">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-dm-api-key">API Key（可选）</label>
+                            <input type="text" id="custom-dm-api-key" name="dm_api_key" placeholder="dk_xxx">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-dm-domain">默认域名</label>
+                            <input type="text" id="custom-dm-domain" name="dm_domain" placeholder="example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="custom-dm-password-length">随机密码长度</label>
+                            <input type="number" id="custom-dm-password-length" name="dm_password_length" min="6" max="64" value="12">
+                        </div>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="custom-priority">优先级</label>
@@ -263,11 +283,11 @@
     </div>
 
 
-    <!-- 编辑自定义域名服务模态框（含类型选择） -->
+    <!-- 编辑自定义邮箱服务模态框（含类型选择） -->
     <div class="modal" id="edit-custom-modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>✏️ 编辑自定义域名服务</h3>
+                <h3>✏️ 编辑自定义邮箱服务</h3>
                 <button class="modal-close" id="close-edit-custom-modal">&times;</button>
             </div>
             <div class="modal-body">
@@ -312,6 +332,26 @@
                         <div class="form-group">
                             <label for="edit-tm-domain">邮箱域名</label>
                             <input type="text" id="edit-tm-domain" name="tm_domain" placeholder="example.com">
+                        </div>
+                    </div>
+                    <!-- DuckMail 字段 -->
+                    <div id="edit-duckmail-fields" style="display:none;">
+                        <div class="form-group">
+                            <label for="edit-dm-base-url">API 地址</label>
+                            <input type="text" id="edit-dm-base-url" name="dm_base_url" placeholder="https://api.duckmail.sbs">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-dm-api-key">API Key</label>
+                            <input type="text" id="edit-dm-api-key" name="dm_api_key" placeholder="留空则不修改">
+                            <small style="color: var(--text-muted);">留空则保持原值不变</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-dm-domain">默认域名</label>
+                            <input type="text" id="edit-dm-domain" name="dm_domain" placeholder="example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-dm-password-length">随机密码长度</label>
+                            <input type="number" id="edit-dm-password-length" name="dm_password_length" min="6" max="64" value="12">
                         </div>
                     </div>
                     <div class="form-row">

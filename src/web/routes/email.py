@@ -144,6 +144,7 @@ async def get_email_services_stats():
             'outlook_count': 0,
             'custom_count': 0,
             'temp_mail_count': 0,
+            'duck_mail_count': 0,
             'tempmail_available': True,  # 临时邮箱始终可用
             'enabled_count': enabled_count
         }
@@ -155,6 +156,8 @@ async def get_email_services_stats():
                 stats['custom_count'] = count
             elif service_type == 'temp_mail':
                 stats['temp_mail_count'] = count
+            elif service_type == 'duck_mail':
+                stats['duck_mail_count'] = count
 
         return stats
 
@@ -203,6 +206,17 @@ async def get_service_types():
                     {"name": "admin_password", "label": "Admin 密码", "required": True, "secret": True},
                     {"name": "domain", "label": "邮箱域名", "required": True, "placeholder": "example.com"},
                     {"name": "enable_prefix", "label": "启用前缀", "required": False, "default": True},
+                ]
+            },
+            {
+                "value": "duck_mail",
+                "label": "DuckMail",
+                "description": "DuckMail 接口邮箱服务，支持 API Key 私有域名访问",
+                "config_fields": [
+                    {"name": "base_url", "label": "API 地址", "required": True, "placeholder": "https://api.duckmail.sbs"},
+                    {"name": "default_domain", "label": "默认域名", "required": True, "placeholder": "duckmail.sbs"},
+                    {"name": "api_key", "label": "API Key", "required": False, "secret": True},
+                    {"name": "password_length", "label": "随机密码长度", "required": False, "default": 12},
                 ]
             }
         ]

@@ -22,7 +22,8 @@ let availableServices = {
     tempmail: { available: true, services: [] },
     outlook: { available: false, services: [] },
     custom_domain: { available: false, services: [] },
-    temp_mail: { available: false, services: [] }
+    temp_mail: { available: false, services: [] },
+    duck_mail: { available: false, services: [] }
 };
 
 // WebSocket 相关变量
@@ -298,7 +299,7 @@ function updateEmailServiceOptions() {
         availableServices.custom_domain.services.forEach(service => {
             const option = document.createElement('option');
             option.value = `custom_domain:${service.id || 'default'}`;
-            option.textContent = service.name;
+            option.textContent = service.name + (service.default_domain ? ` (@${service.default_domain})` : '');
             option.dataset.type = 'custom_domain';
             if (service.id) {
                 option.dataset.serviceId = service.id;
@@ -336,6 +337,23 @@ function updateEmailServiceOptions() {
 
         select.appendChild(optgroup);
     }
+
+    // DuckMail
+    if (availableServices.duck_mail && availableServices.duck_mail.available) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `🦆 DuckMail (${availableServices.duck_mail.count} 个服务)`;
+
+        availableServices.duck_mail.services.forEach(service => {
+            const option = document.createElement('option');
+            option.value = `duck_mail:${service.id}`;
+            option.textContent = service.name + (service.default_domain ? ` (@${service.default_domain})` : '');
+            option.dataset.type = 'duck_mail';
+            option.dataset.serviceId = service.id;
+            optgroup.appendChild(option);
+        });
+
+        select.appendChild(optgroup);
+    }
 }
 
 // 处理邮箱服务切换
@@ -344,8 +362,6 @@ function handleServiceChange(e) {
     if (!value) return;
 
     const [type, id] = value.split(':');
-    const selectedOption = e.target.options[e.target.selectedIndex];
-
     // 处理 Outlook 批量注册模式
     if (type === 'outlook_batch') {
         isOutlookBatchMode = true;
@@ -372,6 +388,16 @@ function handleServiceChange(e) {
         const service = availableServices.custom_domain.services.find(s => s.id == id);
         if (service) {
             addLog('info', `[系统] 已选择自定义域名服务: ${service.name}`);
+        }
+    } else if (type === 'temp_mail') {
+        const service = availableServices.temp_mail.services.find(s => s.id == id);
+        if (service) {
+            addLog('info', `[系统] 已选择 Temp-Mail 自部署服务: ${service.name}`);
+        }
+    } else if (type === 'duck_mail') {
+        const service = availableServices.duck_mail.services.find(s => s.id == id);
+        if (service) {
+            addLog('info', `[系统] 已选择 DuckMail 服务: ${service.name}`);
         }
     }
 }
