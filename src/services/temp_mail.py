@@ -329,6 +329,25 @@ class TempMailService(BaseEmailService):
                     if not mail_id or mail_id in seen_mail_ids:
                         continue
 
+                    # 若提供了 otp_sent_at，跳过在 OTP 触发之前到达的邮件
+                    if otp_sent_at is not None:
+                        raw_created = mail.get("createdAt") or mail.get("created_at") or ""
+                        if raw_created:
+                            try:
+                                import datetime as _dt
+                                # 支持 ISO 8601 字符串或 Unix 时间戳
+                                if isinstance(raw_created, (int, float)):
+                                    mail_ts = float(raw_created)
+                                else:
+                                    mail_ts = _dt.datetime.fromisoformat(
+                                        str(raw_created).replace("Z", "+00:00")
+                                    ).timestamp()
+                                if mail_ts + 1 < otp_sent_at:
+                                    seen_mail_ids.add(mail_id)
+                                    continue
+                            except Exception:
+                                pass
+
                     seen_mail_ids.add(mail_id)
 
                     parsed = self._extract_mail_fields(mail)

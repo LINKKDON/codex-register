@@ -193,6 +193,26 @@ class TempmailService(BaseEmailService):
                         continue
                     seen_ids.add(msg_date)
 
+                    # 按时间戳过滤：跳过早于 OTP 发送时间的邮件
+                    # msg_date 可能是 Unix 秒级时间戳（int）或 ISO 字符串
+                    if otp_sent_at is not None:
+                        try:
+                            if isinstance(msg_date, (int, float)):
+                                mail_ts = float(msg_date)
+                            else:
+                                # 尝试解析 ISO 8601 字符串
+                                import datetime as _dt
+                                mail_ts = _dt.datetime.fromisoformat(
+                                    str(msg_date).replace("Z", "+00:00")
+                                ).timestamp()
+                            if mail_ts < otp_sent_at - 5:  # 允许 5 秒时钟偏差
+                                logger.debug(
+                                    f"跳过旧邮件 (mail_ts={mail_ts:.0f} < otp_sent_at={otp_sent_at:.0f})"
+                                )
+                                continue
+                        except Exception:
+                            pass  # 解析失败则不过滤，保留原有行为
+
                     sender = str(msg.get("from", "")).lower()
                     subject = str(msg.get("subject", ""))
                     body = str(msg.get("body", ""))

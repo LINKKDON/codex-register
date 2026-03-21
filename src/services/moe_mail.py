@@ -294,6 +294,19 @@ class MeoMailEmailService(BaseEmailService):
         start_time = time.time()
         seen_message_ids = set()
 
+        # 若提供了 otp_sent_at，先快照当前 inbox 中已有的消息 ID，
+        # 登录阶段触发的 OTP 一定在快照之后到达，避免误用注册阶段的旧验证码。
+        if otp_sent_at is not None:
+            try:
+                _snap = self._make_request("GET", f"/api/emails/{target_email_id}")
+                for _m in _snap.get("messages", []):
+                    _mid = _m.get("id")
+                    if _mid:
+                        seen_message_ids.add(_mid)
+                logger.debug(f"moe_mail 快照已有消息 {len(seen_message_ids)} 条，将跳过")
+            except Exception:
+                pass
+
         while time.time() - start_time < timeout:
             try:
                 # 获取邮件列表
