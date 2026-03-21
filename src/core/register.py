@@ -212,6 +212,114 @@ class RegistrationEngine:
             self._log(f"初始化会话失败: {e}", "error")
             return False
 
+    def _reset_session_for_login(self) -> bool:
+        """
+        彻底销毁注册阶段的 session，创建全新的 HTTP 客户端和 curl_cffi Session。
+
+        注册 session 走到 create_account 返回 200 就已完成使命；
+        将整个行为链拆分成两个独立会话可降低被风控识别的概率。
+        """
+        try:
+            self._log("重置会话：销毁注册 session，准备全新登录会话...")
+            # 关闭旧会话，清理底层 curl handle
+            try:
+                self.http_client.close()
+            except Exception:
+                pass
+
+            # 建立新的 HTTP 客户端（新 TLS 指纹 / 新 cookie jar）
+            self.http_client = OpenAIHTTPClient(proxy_url=self.proxy_url)
+            self.session = self.http_client.session
+
+            # 清除所有注册阶段的状态，强制登录阶段重新生成
+            self.oauth_start = None
+            self._otp_sent_at = None
+
+            self._log("新 session 已就绪")
+            return True
+        except Exception as e:
+            self._log(f"重置 session 失败: {e}", "error")
+            return False
+
+    def _login_phase_init(self) -> tuple:
+        """
+        在全新 session 中完成登录阶段的 OAuth 初始化：
+          1. 生成新的 OAuth PKCE 参数并访问授权 URL 获取 oai-did cookie
+          2. 检查 Sentinel
+
+        Returns:
+            (did, sen_token): device_id 和 sentinel token；失败时返回 (None, None)
+        """
+        # 1. 生成新的 OAuth start（新 state / code_verifier）
+        self._log("登录阶段 - 生成新 OAuth 参数...")
+        if not self._start_oauth():
+            return None, None
+
+        # 2. 用新 session 访问授权 URL，获取 oai-did cookie
+        self._log("登录阶段 - 获取新 Device ID...")
+        did = self._get_device_id()
+        if not did:
+            return None, None
+
+        # 3. 检查 Sentinel
+        self._log("登录阶段 - 检查 Sentinel...")
+        sen_token = self._check_sentinel(did)
+
+        return did, sen_token
+
+    def _login_phase_otp(self, did: str, sen_token) -> bool:
+        """
+        用登录 session 提交邮箱，触发 OTP 发送到已注册邮箱。
+        使用 screen_hint=login 告知服务端这是登录而非注册。
+
+        Args:
+            did: 登录阶段的 device_id
+            sen_token: 登录阶段的 sentinel token
+
+        Returns:
+            bool: 是否成功触发 OTP
+        """
+        try:
+            login_body = (
+                f'{{"username":{{"value":"{self.email}","kind":"email"}},'
+                f'"screen_hint":"login"}}'
+            )
+
+            headers = {
+                "referer": "https://auth.openai.com/sign-in",
+                "accept": "application/json",
+                "content-type": "application/json",
+            }
+
+            if sen_token:
+                sentinel = (
+                    f'{{"p": "", "t": "", "c": "{sen_token}", '
+                    f'"id": "{did}", "flow": "authorize_continue"}}'
+                )
+                headers["openai-sentinel-token"] = sentinel
+
+            response = self.session.post(
+                OPENAI_API_ENDPOINTS["signup"],
+                headers=headers,
+                data=login_body,
+            )
+
+            self._log(f"登录阶段触发 OTP 状态: {response.status_code}")
+
+            if response.status_code == 200:
+                self._otp_sent_at = time.time()
+                return True
+
+            self._log(
+                f"触发登录 OTP 失败: HTTP {response.status_code} - {response.text[:200]}",
+                "error",
+            )
+            return False
+
+        except Exception as e:
+            self._log(f"触发登录 OTP 异常: {e}", "error")
+            return False
+
     def _get_device_id(self) -> Optional[str]:
         """获取 Device ID"""
         if not self.oauth_start:
@@ -653,12 +761,32 @@ class RegistrationEngine:
 
     def run(self) -> RegistrationResult:
         """
-        执行完整的注册流程
+        执行完整的注册流程。
 
-        支持已注册账号自动登录：
-        - 如果检测到邮箱已注册，自动切换到登录流程
-        - 已注册账号跳过：设置密码、发送验证码、创建用户账户
-        - 共用步骤：获取验证码、验证验证码、Workspace 和 OAuth 回调
+        核心策略：将注册和获取 Token 拆成两个完全独立的 session，
+        避免「注册 → 立刻拿 token」这一行为链被风控识别：
+
+          [注册 session]
+            1. 检查 IP
+            2. 创建邮箱
+            3. 初始化会话 / OAuth start / Device ID / Sentinel
+            4. 提交注册表单
+            (已注册账号：直接跳到 RESET)
+            5. 注册密码
+            6. 发送验证码（注册 OTP）
+            7. 等待 + 验证注册 OTP
+            8. 创建用户账户 ← 注册 session 使命终止
+
+          ── RESET：销毁注册 session，新建全新 session ──
+
+          [登录 session]
+            9.  新 OAuth start / Device ID / Sentinel
+            10. 用 screen_hint=login 触发登录 OTP
+            11. 等待 + 验证登录 OTP  ← 获得 oai-client-auth-session cookie
+            12. 获取 Workspace ID
+            13. 选择 Workspace
+            14. 跟随重定向
+            15. 处理 OAuth 回调 → 拿到 access_token
 
         Returns:
             RegistrationResult: 注册结果
@@ -722,50 +850,80 @@ class RegistrationEngine:
                 result.error_message = f"提交注册表单失败: {signup_result.error_message}"
                 return result
 
-            # 8. [已注册账号跳过] 注册密码
-            if self._is_existing_account:
-                self._log("8. [已注册账号] 跳过密码设置，OTP 已自动发送")
-            else:
+            # ----------------------------------------------------------------
+            # 注册 session 路径（新账号）
+            # ----------------------------------------------------------------
+            if not self._is_existing_account:
+                # 8. 注册密码
                 self._log("8. 注册密码...")
                 password_ok, password = self._register_password()
                 if not password_ok:
                     result.error_message = "注册密码失败"
                     return result
 
-            # 9. [已注册账号跳过] 发送验证码
-            if self._is_existing_account:
-                self._log("9. [已注册账号] 跳过发送验证码，使用自动发送的 OTP")
-                # 已注册账号的 OTP 在提交表单时已自动发送，记录时间戳
-                self._otp_sent_at = time.time()
-            else:
+                # 9. 发送注册 OTP
                 self._log("9. 发送验证码...")
                 if not self._send_verification_code():
                     result.error_message = "发送验证码失败"
                     return result
 
-            # 10. 获取验证码
-            self._log("10. 等待验证码...")
-            code = self._get_verification_code()
-            if not code:
-                result.error_message = "获取验证码失败"
-                return result
+                # 10. 等待 + 验证注册 OTP
+                self._log("10. 等待注册验证码...")
+                reg_code = self._get_verification_code()
+                if not reg_code:
+                    result.error_message = "获取注册验证码失败"
+                    return result
 
-            # 11. 验证验证码
-            self._log("11. 验证验证码...")
-            if not self._validate_verification_code(code):
-                result.error_message = "验证验证码失败"
-                return result
+                self._log("11. 验证注册验证码...")
+                if not self._validate_verification_code(reg_code):
+                    result.error_message = "验证注册验证码失败"
+                    return result
 
-            # 12. [已注册账号跳过] 创建用户账户
-            if self._is_existing_account:
-                self._log("12. [已注册账号] 跳过创建用户账户")
-            else:
+                # 12. 创建用户账户  ← 注册 session 使命终止
                 self._log("12. 创建用户账户...")
                 if not self._create_user_account():
                     result.error_message = "创建用户账户失败"
                     return result
 
-            # 13. 获取 Workspace ID
+            # 对于已注册账号，注册 session 在提交表单（步骤 7）后即已完成，
+            # 直接进入 RESET 阶段。
+
+            # ----------------------------------------------------------------
+            # RESET：销毁注册 session，建立全新登录 session
+            # ----------------------------------------------------------------
+            self._log("── 切换会话：销毁注册 session，建立登录 session ──")
+            if not self._reset_session_for_login():
+                result.error_message = "重置登录 session 失败"
+                return result
+
+            # ----------------------------------------------------------------
+            # 登录 session：新 OAuth start / Device ID / Sentinel
+            # ----------------------------------------------------------------
+            self._log("[登录阶段] 初始化 OAuth / Device ID / Sentinel...")
+            login_did, login_sen = self._login_phase_init()
+            if not login_did:
+                result.error_message = "登录阶段 OAuth 初始化失败"
+                return result
+
+            # 用 screen_hint=login 触发登录 OTP
+            self._log("[登录阶段] 触发登录 OTP...")
+            if not self._login_phase_otp(login_did, login_sen):
+                result.error_message = "触发登录 OTP 失败"
+                return result
+
+            # 等待 + 验证登录 OTP
+            self._log("[登录阶段] 等待登录验证码...")
+            login_code = self._get_verification_code()
+            if not login_code:
+                result.error_message = "获取登录验证码失败"
+                return result
+
+            self._log("[登录阶段] 验证登录验证码...")
+            if not self._validate_verification_code(login_code):
+                result.error_message = "验证登录验证码失败"
+                return result
+
+            # 13. 获取 Workspace ID（使用登录 session）
             self._log("13. 获取 Workspace ID...")
             workspace_id = self._get_workspace_id()
             if not workspace_id:
@@ -805,12 +963,12 @@ class RegistrationEngine:
             # 设置来源标记
             result.source = "login" if self._is_existing_account else "register"
 
-            # 尝试获取 session_token 从 cookie
+            # 尝试获取 session_token 从 cookie（登录 session）
             session_cookie = self.session.cookies.get("__Secure-next-auth.session-token")
             if session_cookie:
                 self.session_token = session_cookie
                 result.session_token = session_cookie
-                self._log(f"获取到 Session Token")
+                self._log("获取到 Session Token")
 
             # 17. 完成
             self._log("=" * 60)
