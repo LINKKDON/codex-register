@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  webui:
+    build: .
+    ports:
+      - "1455:1455"
+    environment:
+      - WEBUI_HOST=0.0.0.0
+      - WEBUI_PORT=1455
+      - DEBUG=0
+      - LOG_LEVEL=info
+      # 如果需要访问密码，可以在这里取消注释并设置
+      # - WEBUI_ACCESS_PASSWORD=your_secure_password
+    volumes:
+      # 挂载数据目录以持久化数据库和日志
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped

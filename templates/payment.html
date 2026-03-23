@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>支付升级 - OpenAI 注册系统</title>
+    <link rel="stylesheet" href="/static/css/style.css?v={{ static_version }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💳</text></svg>">
+    <style>
+        .plan-cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .plan-card {
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            text-align: center;
+        }
+        .plan-card:hover {
+            border-color: var(--primary-color);
+        }
+        .plan-card.selected {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+        }
+        .plan-card h3 { margin: 0 0 8px; font-size: 1.2rem; }
+        .plan-card p  { margin: 0; color: var(--text-secondary); font-size: 0.9rem; }
+        .team-options { display: none; }
+        .team-options.show { display: block; }
+        .link-box {
+            display: none;
+            margin-top: 16px;
+        }
+        .link-box.show { display: block; }
+        .link-text {
+            width: 100%;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            resize: vertical;
+            min-height: 80px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 导航栏 -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1>OpenAI 注册系统</h1>
+            </div>
+            <div class="nav-links">
+                <a href="/" class="nav-link">注册</a>
+                <a href="/accounts" class="nav-link">账号管理</a>
+                <a href="/email-services" class="nav-link">邮箱服务</a>
+                <a href="/payment" class="nav-link active">支付</a>
+                <a href="/settings" class="nav-link">设置</a>
+                <a href="/logout" class="nav-link">退出</a>
+            </div>
+            <button class="theme-toggle" onclick="theme.toggle()" title="切换主题">🌙</button>
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <div class="page-header">
+                <h2>支付升级</h2>
+                <p class="subtitle">为账号生成 Plus 或 Team 订阅支付链接</p>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>选择套餐</h3>
+                </div>
+                <div class="card-body">
+                    <!-- 套餐选择 -->
+                    <div class="plan-cards">
+                        <div class="plan-card selected" id="plan-plus" onclick="selectPlan('plus')">
+                            <h3>Plus</h3>
+                            <p>个人订阅，$20/月</p>
+                        </div>
+                        <div class="plan-card" id="plan-team" onclick="selectPlan('team')">
+                            <h3>Team</h3>
+                            <p>团队订阅，按座位计费</p>
+                        </div>
+                    </div>
+
+                    <!-- 账号选择 -->
+                    <div class="form-group">
+                        <label for="account-select">选择账号</label>
+                        <select id="account-select" style="width:100%">
+                            <option value="">-- 加载中... --</option>
+                        </select>
+                    </div>
+
+                    <!-- 国家选择 -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="country-select">计费国家</label>
+                            <select id="country-select" onchange="onCountryChange()">
+                                <option value="SG">新加坡 (SGD)</option>
+                                <option value="US">美国 (USD)</option>
+                                <option value="TR">土耳其 (TRY)</option>
+                                <option value="JP">日本 (JPY)</option>
+                                <option value="HK">香港 (HKD)</option>
+                                <option value="GB">英国 (GBP)</option>
+                                <option value="AU">澳大利亚 (AUD)</option>
+                                <option value="CA">加拿大 (CAD)</option>
+                                <option value="IN">印度 (INR)</option>
+                                <option value="BR">巴西 (BRL)</option>
+                                <option value="MX">墨西哥 (MXN)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>对应货币</label>
+                            <input type="text" id="currency-display" value="SGD" readonly style="background:var(--surface-hover);cursor:default">
+                        </div>
+                    </div>
+
+                    <!-- Team 额外参数 -->
+                    <div class="team-options" id="team-options">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="workspace-name">工作区名称</label>
+                                <input type="text" id="workspace-name" value="MyTeam" placeholder="MyTeam">
+                            </div>
+                            <div class="form-group">
+                                <label for="seat-quantity">座位数量</label>
+                                <input type="number" id="seat-quantity" value="5" min="1" max="100">
+                            </div>
+                            <div class="form-group">
+                                <label for="price-interval">计费周期</label>
+                                <select id="price-interval">
+                                    <option value="month">月付</option>
+                                    <option value="year">年付</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 操作区 -->
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="generateLink()">生成支付链接</button>
+                    </div>
+
+                    <!-- 链接结果 -->
+                    <div class="link-box" id="link-box">
+                        <label>支付链接</label>
+                        <textarea class="link-text" id="link-text" readonly></textarea>
+                        <div class="form-actions" style="margin-top:10px">
+                            <button class="btn btn-secondary" onclick="copyLink()">复制链接</button>
+                            <button class="btn btn-primary" onclick="openIncognito()">无痕打开浏览器</button>
+                        </div>
+                        <p class="hint" id="open-status"></p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/utils.js?v={{ static_version }}"></script>
+    <script src="/static/js/payment.js?v={{ static_version }}"></script>
+</body>
+</html>
